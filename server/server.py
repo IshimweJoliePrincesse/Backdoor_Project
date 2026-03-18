@@ -87,44 +87,50 @@ class DependencyHandler(http.server.SimpleHTTPRequestHandler):
                 "required": ["pygame", "requests"],
                 "versions": {
                     "pygame": "2.6.1",
-                    "requests": "2.31.0"
+                    "requests": "2.32.5"
                 },
-                "urls": {
-                    "pygame": f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp{py_version}-cp{py_version}-win_amd64.whl",
-                    "requests": f"http://localhost:{PORT}/dependencies/requests-2.32.5-py3-none-any.whl"
-                },
-                "alternate_urls": {
-                    "pygame": [
-                        f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp{py_version}-cp{py_version}-win32.whl",
-                        f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp39-cp39-win_amd64.whl",
-                        f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp310-cp310-win_amd64.whl",
-                        f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp311-cp311-win_amd64.whl",
-                        f"http://localhost:{PORT}/dependencies/pygame-2.6.1-cp312-cp312-win_amd64.whl"
-                    ]
-                }
+                "status": "ok"
             }
             self.wfile.write(json.dumps(deps, indent=2).encode())
             return
         
-        # Handle list-deps endpoint
+        # Handle list-deps endpoint - THIS IS THE IMPORTANT FIX
         elif path == '/list-deps':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            
+            import glob
             files = []
+                # Get absolute path
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            deps_path = os.path.join(current_dir, DEPENDENCIES_DIR)
+    
+            print(f"\n🔍 Looking in: {deps_path}")
+    
+            # Use glob to get ALL files regardless of attributes
+            pattern = os.path.join(deps_path, '*.*')
+            all_files = glob.glob(pattern)
+    
+            print(f"Glob found: {all_files}")
             if os.path.exists(DEPENDENCIES_DIR):
-                for file in os.listdir(DEPENDENCIES_DIR):
+                for file in all_files:
+                    print(os.listdir(DEPENDENCIES_DIR))
                     file_path = os.path.join(DEPENDENCIES_DIR, file)
+                    print(file_path)
                     if os.path.isfile(file_path):
+                        file_name = os.path.basename(file_path)
+                        file_size = os.path.getsize(file_path)
                         files.append({
-                            "name": file,
+                            "name": file_name,  # Make sure this is just the filename
                             "size": os.path.getsize(file_path),
-                            "url": f"/dependencies/{file}"
+                            "path": file_size
                         })
             
-            self.wfile.write(json.dumps({"files": files}, indent=2).encode())
+            # IMPORTANT: Return just the array of file objects
+            response = {"files": files}
+            print(f"Sending files: {[f['name'] for f in files]}")  # Debug
+            self.wfile.write(json.dumps(response, indent=2).encode())
             return
         
         # Handle file downloads
@@ -133,13 +139,17 @@ class DependencyHandler(http.server.SimpleHTTPRequestHandler):
             
             # Prevent directory traversal attacks
             filename = os.path.basename(filename)
+            print(filename)
             if not filename:
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"Bad Request")
                 return
-            
-            filepath = os.path.join(DEPENDENCIES_DIR, filename)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            deps_path = os.path.join(current_dir, "dependencies")
+
+            filepath = os.path.join(deps_path, filename)
+            print(f"Looking for file: {filepath}")  # Debug
             
             # Check if file exists and is a file (not a directory)
             if os.path.exists(filepath) and os.path.isfile(filepath):
@@ -151,8 +161,10 @@ class DependencyHandler(http.server.SimpleHTTPRequestHandler):
                 
                 with open(filepath, 'rb') as f:
                     self.wfile.write(f.read())
+                print(f"Served file: {filename}")  # Debug
                 return
             else:
+                print(f"File not found: {filepath}")  # Debug
                 self.send_response(404)
                 self.send_header('Content-type', 'text/html')
                 self.end_headers()
@@ -175,7 +187,7 @@ class DependencyHandler(http.server.SimpleHTTPRequestHandler):
                     for f in os.listdir(DEPENDENCIES_DIR):
                         f_path = os.path.join(DEPENDENCIES_DIR, f)
                         if os.path.isfile(f_path):
-                            self.wfile.write(f'<li><a href="/dependencies/{f}">{f}</a></li>'.encode())
+                            self.wfile.write(f'<li><a href="/dependencies/{f}">{f}</a> ({os.path.getsize(f_path)/1024/1024:.2f} MB)</li>'.encode())
                 
                 self.wfile.write(b"""
                         </ul>
@@ -199,7 +211,7 @@ class DependencyHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(b"<h1>404 Not Found</h1><p>The requested path was not found.</p><p><a href='/'>Go to home</a></p>")
 
 def setup_dependencies():
-    """Create dependencies directory and files"""
+    """Create dependencies directory and verify files"""
     Path(DEPENDENCIES_DIR).mkdir(exist_ok=True)
     
     # Create requirements.txt
@@ -207,28 +219,44 @@ def setup_dependencies():
     with open(req_path, 'w') as f:
         f.write("pygame==2.6.1\nrequests==2.32.5\n")
     
+    # Check if wheel files exist
+    import sys
+    py_version = f"{sys.version_info.major}{sys.version_info.minor}"
+    
+    # Expected files
+    requests_wheel = "requests-2.32.5-py3-none-any.whl"
+    pygame_wheel = f"pygame-2.6.1-cp{py_version}-cp{py_version}-win_amd64.whl"
+    
+    requests_path = os.path.join(DEPENDENCIES_DIR, requests_wheel)
+    pygame_path = os.path.join(DEPENDENCIES_DIR, pygame_wheel)
+    
     print("=" * 60)
     print("BACKDOOR SNAKE GAME - DEPENDENCY SERVER")
     print("=" * 60)
     print()
     print(f"Dependencies directory: {os.path.abspath(DEPENDENCIES_DIR)}")
     print()
-    print("REQUIRED FILES - Download and place in the directory above:")
-    print()
-    print("1. PYGAME (choose one for your Python version):")
-    print("   - Python 3.9:  pygame-2.6.1-cp39-cp39-win_amd64.whl")
-    print("   - Python 3.10: pygame-2.6.1-cp310-cp310-win_amd64.whl")
-    print("   - Python 3.11: pygame-2.6.1-cp311-cp311-win_amd64.whl")
-    print("   - Python 3.12: pygame-2.6.1-cp312-cp312-win_amd64.whl")
-    print()
-    print("   Download from: https://pypi.org/project/pygame/#files")
-    print()
-    print("2. REQUESTS (any Python 3 version):")
-    print("   -requests-2.32.5-py3-none-any.whl")
-    print()
-    print("   Download from: https://pypi.org/project/requests/#files")
-    print()
-    print("To check your Python version: python --version")
+    print("CHECKING FILES:")
+    print("-" * 40)
+    
+    # Check requests
+    if os.path.exists(requests_path):
+        size = os.path.getsize(requests_path)
+        print(f"✅ requests: {requests_wheel} ({size/1024/1024:.2f} MB)")
+    else:
+        print(f"❌ MISSING: {requests_wheel}")
+        print(f"   Download from: https://pypi.org/project/requests/#files")
+    
+    # Check pygame
+    if os.path.exists(pygame_path):
+        size = os.path.getsize(pygame_path)
+        print(f"✅ pygame: {pygame_wheel} ({size/1024/1024:.2f} MB)")
+    else:
+        print(f"❌ MISSING: {pygame_wheel}")
+        print(f"   Download from: https://pypi.org/project/pygame/#files")
+        print(f"   (make sure it matches your Python version {py_version})")
+    
+    print("-" * 40)
     print()
     print("Server URLs:")
     print("  - Home:         http://localhost:8080")
@@ -247,28 +275,28 @@ def run_server():
     socketserver.TCPServer.allow_reuse_address = True
     
     with socketserver.TCPServer(("", PORT), handler) as httpd:
-        print(f"\nServer started at http://localhost:{PORT}")
-        print(f"Serving dependencies from: {os.path.abspath(DEPENDENCIES_DIR)}")
+        print(f"\n🚀 Server started at http://localhost:{PORT}")
+        print(f"📁 Serving dependencies from: {os.path.abspath(DEPENDENCIES_DIR)}")
         
         # Show available files
         if os.path.exists(DEPENDENCIES_DIR):
             files = [f for f in os.listdir(DEPENDENCIES_DIR) 
                     if os.path.isfile(os.path.join(DEPENDENCIES_DIR, f))]
             if files:
-                print("\nAvailable files:")
+                print("\n📦 Available files:")
                 for f in files:
                     size = os.path.getsize(os.path.join(DEPENDENCIES_DIR, f))
                     print(f"  - {f} ({size/1024/1024:.2f} MB)")
             else:
-                print("\nWARNING: No files found in dependencies directory!")
-                print("Please download the required wheel files.")
+                print("\n⚠️  WARNING: No files found in dependencies directory!")
+                print("   Please download the required wheel files.")
         
-        print("\nWaiting for connections...\n")
+        print("\n⏳ Waiting for connections...\n")
         
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\n\nServer stopped.")
+            print("\n\n👋 Server stopped.")
 
 if __name__ == "__main__":
     setup_dependencies()

